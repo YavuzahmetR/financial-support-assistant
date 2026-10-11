@@ -21,6 +21,7 @@ Thumbs.db
 # Model weights and local working notes
 models/
 data/
+reports/
 *.gguf
 *.safetensors
 local_notes/

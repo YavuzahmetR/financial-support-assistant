@@ -2,215 +2,153 @@
 
 ## Overview
 
-A local assistant for a support worker. It classifies an English customer question,
-retrieves fictional card policies, and drafts an editable answer with sources.
-A Streamlit interface keeps the customer reply, policy references and worker action
-separate. Every reply requires worker review; nothing is sent automatically.
+A local tool that helps a support worker answer English card-related questions.
+It identifies the topic, finds a relevant fictional policy and prepares an
+editable reply with its source. The worker checks the reply before using it;
+nothing is sent automatically.
 
-## Scope and limitations
-
-- The classifier recognizes 77 BANKING77 topics. Five supplied policies cover
-  physical-card delivery, activation, damage and selected payment problems.
-- Policies are fictional. The app has no account, shipment or transaction access.
-- MPNet and Qwen are pretrained; only logistic regression was trained here.
-- This is a local drafting prototype, not a live bank service. It has no public
-  hosting or FastAPI endpoint. Use English fictional questions without personal data.
-- Small-model drafts can omit conditions, repeat supplied information or invent
-  context. Automated checks catch known patterns, not every factual error.
-
-## Architecture and workflow
+## How it works
 
 ```mermaid
-flowchart TD
-    Q[English customer question] --> E[Fixed MPNet encoder]
-    E --> C[Trained 77-topic logistic regression]
-    E --> R[Similarity search over policy sections]
-    P[Five fictional policies] --> R
-    C --> D[Topic, scope and context rules]
-    R --> D
-    D -->|Personal record, uncertain or unsupported| W[Worker guidance]
-    D -->|Applicable policy| L[One local Qwen draft]
-    L --> V[Structure, citations and known omission checks]
-    V -->|Accepted by checks| A[Editable model draft]
-    V -->|Rejected or unavailable| F[Policy reference for editing]
-    A --> H[Worker review and optional download]
-    F --> H
-    W --> H
+flowchart LR
+    Q[Customer question] --> E[MPNet text vector]
+    E --> C[Logistic regression: topic]
+    E --> R[Search policy sections]
+    C --> S[Select an applicable policy]
+    R --> S
+    S --> D[Local Qwen draft or worker guidance]
+    D --> H[Read sources, edit and review]
 ```
 
-The same normalized 768-dimensional question vector serves classification and
-retrieval. All ten policy sections are ranked; explicit rules select the relevant
-procedure and distinguish missing customer context from inaccessible records.
-The panel shows the three closest passages plus the selected procedure if needed.
+- **MPNet** is a pretrained encoder: it converts questions and policy sections
+  into vectors. Cosine similarity ranks the ten policy sections.
+- **Logistic regression** was trained on 10,003 BANKING77 questions to predict
+  one of 77 topics. It does not learn the policies or generate answers.
+- **Python rules** map six relevant topics to the five supplied card policies
+  and select a section using the question's details. Clear procedure rules can
+  also handle an uncertain topic; other uncertain requests require worker review.
+- **Qwen3-1.7B**, running through Ollama, drafts from the selected text.
+  Source and known omission checks can reject a draft; the worker then sees
+  the policy text instead. Requests for inaccessible records or unsupported
+  topics receive worker guidance without a model call.
 
-The model writes only `draft` and `source_ids`. The application owns the route,
-status and missing-information fields. A maximum of one generation call is made.
-Personal-record, unsupported and uncertain requests make no generation call.
-A rejected draft is labeled **Policy reference**, using actual source text;
-fixed record/scope messages are labeled **System suggestion**. Neither counts as
-successful model generation. All replies remain visible and editable, but download
-requires the review checkbox. Editing resets the acknowledgment.
+Only logistic regression was trained here; MPNet and Qwen remain pretrained.
+The supported policies cover delivery, activation, damage and shop/online payment
+problems. Recognizing a topic does not mean a policy exists for it.
+
+## Results
+
+| Classifier | Accuracy | Macro-F1 | Top-3 accuracy |
+|---|---:|---:|---:|
+| MiniLM + logistic regression (earlier comparison) | 93.18% | 0.9317 | 98.25% |
+| MPNet + logistic regression (included model) | **93.83%** | **0.9384** | **98.67%** |
+
+These scores measure intent labels on 3,080 previously inspected BANKING77 test
+questions, not reply quality. `C=30` was selected using three-fold training-only
+cross-validation; review thresholds used an 8,002/2,001 training split. The app
+requests review below 0.5 confidence, which is not a guarantee of detecting
+unfamiliar questions. Historical encoding used batches of 16; quantized vectors
+can vary with batching, so these scores do not establish identical accuracy for
+the app's single-question path.
+
+Development checks found the expected route in 30/30 initial and 11/12 additional
+questions; the remaining question safely required clarification. Drafts passed
+the automated checks in 12/18 and 3/9 generation attempts respectively. These
+small sets informed development and were rerun; they are not an untouched holdout.
+Passing checks does not establish factual correctness. Every reply needs review.
+
+## Demo
+
+The activation example shows a model draft and its selected policy:
+
+![Activation question and editable reply](assets/screenshots/card-activation.png)
+
+[Expanded activation source](assets/screenshots/card-activation-sources.png).
+
+The short account-status question below requires clarification in this run;
+the app does not claim to have checked a customer's account:
+
+![Uncertain question and worker guidance](assets/screenshots/routing-review.png)
+
+[Expanded candidate sources](assets/screenshots/routing-review-sources.png).
 
 ## Project layout
 
 ```text
-financial-support-assistant/
-├── streamlit_app.py             # Local interface
-├── src/
-│   ├── automation.py             # Topic, retrieval and routing
-│   ├── embedding.py              # Quantized ONNX encoder
-│   ├── intent.py                 # Numeric classifier inference
-│   ├── retrieval.py              # Markdown sections and source locations
-│   ├── drafting.py               # Bounded local generation
-│   ├── output_checks.py          # Known unsafe patterns and policy omissions
-│   └── presentation.py           # Reply origin and worker guidance
-├── scripts/                     # Setup, local server and classifier training
-├── configs/                     # Encoder and generation settings
-├── artifacts/                   # Trained classifier weights and labels
-├── knowledge_base/              # Five policies, ten sections
-├── reports/component_comparison.json  # Concise results and conditions
-├── pyproject.toml
-└── uv.lock
+streamlit_app.py       Local interface
+src/                   Encoding, classification, retrieval and reply handling
+scripts/               Encoder download and optional classifier training
+configs/               Encoder and local Qwen settings
+artifacts/             Included classifier weights and topic labels
+knowledge_base/        Five fictional policies, ten searchable sections
+assets/screenshots/    Interface examples
+requirements.txt      Python dependencies
 ```
 
-`models/`, `data/`, `.cache/` and `.venv/` stay local and are excluded from Git.
+`artifacts/intent.npz` contains the trained weights; `intent.json` supplies their
+ordered labels and review threshold. Both are required by the app. Encoder
+settings identify the matching pretrained model. Downloads, caches and optional
+training outputs stay local in `models/`, `data/`, `.cache/` and `reports/`.
 
-## Data and models
+## Setup and usage
 
-The classifier was fitted on all **10,003 official BANKING77 training questions**.
-MPNet converts each question into a vector; logistic regression learns which of
-77 intent labels fits that vector. The classifier does not learn bank policies
-or write answers. Retrieval searches the separate Markdown policies, and Qwen
-uses the selected text to draft the response.
+Install Python 3.12 and [Ollama](https://docs.ollama.com/windows).
+From the repository root, open two **PowerShell** terminals.
 
-| Component | Configuration |
-|---|---|
-| Encoder | `sentence-transformers/all-mpnet-base-v2`, quantized ONNX on CPU |
-| Encoder limits | 768 dimensions, 256 tokens, two CPU threads |
-| Classifier | Multinomial logistic regression, `C=30` |
-| Confidence rule | Below `0.5` requires routing review unless a narrow explicit procedure matches |
-| Draft model | Local `qwen3:1.7b` |
-| Generation | 2,048 context tokens, 512 output tokens, 160-word draft limit, 60-second timeout |
-
-Source sections retain readable IDs, relative paths and line ranges.
-See [policy conventions](knowledge_base/README.md).
-
-## Setup
-
-Requires Windows, Python 3.12+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).
-From the repository root in **PowerShell**:
+In the first terminal, start the local model server and leave it running:
 
 ```powershell
-uv sync --locked --no-dev
-.\.venv\Scripts\python.exe -m scripts.setup_embedding
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup_ollama.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/start_ollama.ps1
 $env:OLLAMA_HOST = '127.0.0.1:11435'
-.\.cache\ollama\ollama.exe pull qwen3:1.7b
-.\.venv\Scripts\python.exe -m streamlit run streamlit_app.py
+$env:OLLAMA_MODELS = "$PWD\models\ollama"
+ollama serve
 ```
 
-Initial downloads require internet; inference runs locally afterward. The scripts
-keep Ollama inside the project without installing a global service. MPNet uses
-CPU; Ollama can use an available GPU. The supplied setup scripts were verified on
-Windows; another OS needs its own Ollama installation at the configured address.
+This app uses port 11435; Ollama's usual desktop server uses 11434.
+See [Ollama's server settings](https://docs.ollama.com/faq).
+If 11435 is already running, keep that server and skip starting another one.
 
-## Usage
-
-For later runs:
+In the second terminal, install the dependencies and models, then start the app:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/start_ollama.ps1
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m scripts.setup_embedding
+$env:OLLAMA_HOST = '127.0.0.1:11435'
+ollama pull qwen3:1.7b
 .\.venv\Scripts\python.exe -m streamlit run streamlit_app.py
 ```
 
-Open **http://127.0.0.1:8501**. The model server uses **127.0.0.1:11435**.
-Someone cloning the repo can run the interface on their own computer; these
-addresses do not expose it to other computers.
+Open **http://127.0.0.1:8501**. Initial downloads need internet; inference then
+runs locally. Later runs only need the server and the final Streamlit command.
+Stop each terminal's running server with `Ctrl+C`.
 
-No customer dataset or account is needed to try the interface. The repository
-includes the fictional policies and trained classifier; setup downloads the
-pretrained models. Paste one of these English questions into **Customer question**:
+The policies and classifier are included; no customer data is needed. Try:
 
-| Example question | What to look for |
+| Question | Expected behavior |
 |---|---|
-| `My physical card arrived. How do I activate it?` | Activation instructions backed by the activation policy. |
-| `How do I check my card shipment status in the app?` | Where to find delivery information; no claim to have checked an actual shipment. |
-| `My card is not working. What details do you need?` | A request for the missing payment context rather than an assumed cause. |
-| `Can you check whether my card is active?` | This short question can require routing clarification; the app never claims to inspect an account or confirm activation. |
-| `What is the replacement fee for a damaged card?` | **Refer this request to the relevant support team**; no invented price. |
+| `My physical card arrived. How do I activate it?` | Activation guidance with its policy. |
+| `How do I check my card shipment status in the app?` | General delivery instructions, without claiming access to a shipment. |
+| `My card is not working. What details do you need?` | Ask for the missing payment context. |
+| `Can you check whether my card is active?` | May require topic clarification; never confirms account status. |
+| `What is the replacement fee for a damaged card?` | Refer to support rather than invent a price. |
 
-1. Click **Generate answer** and read **Answer preview**, including the response origin.
-2. Under **Topic and sources**, expand a passage marked **used** to compare the
-   reply with the policy. Passages marked **candidate** are search suggestions.
-3. Edit **Customer reply** if needed. After checking it, select
-   **I reviewed this customer reply** to enable the optional text download.
+Click **Generate answer**, expand a source marked **used**, and check the reply.
+Sources marked **candidate** are search suggestions. Edit the reply if needed,
+then check **I reviewed this customer reply** to enable the optional download.
+Editing resets that acknowledgment. If generation fails, **Policy reference**
+shows the selected source for worker editing. Wording and generation results vary.
 
-A supported question can show either a model draft or **Policy reference** if the
-draft fails the checks or the model is unavailable. In the latter case, turn the
-source text into a reply yourself. Wording can vary; the examples demonstrate the
-workflow, not guaranteed model answers. Nothing is sent to a customer.
+Optional: `python -m scripts.train_intent` using the virtual environment's Python
+downloads BANKING77, selects classifier settings and saves a separate candidate
+under `models/retrained-intent/`. Its local report is `reports/retrained_intent.json`;
+the included model is not overwritten.
 
-Stop Streamlit with `Ctrl+C`; stop the project model server with:
+## Limitations and sources
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/stop_ollama.ps1
-```
-
-Optional classifier reproduction:
-
-```powershell
-uv sync --locked --group training --no-dev
-.\.venv\Scripts\python.exe -m scripts.train_intent
-```
-
-This selects classifier settings using the training data and writes a separate
-candidate to `models/retrained-intent/` and a report to `reports/retrained_intent.json`.
-It does not overwrite shipped weights or train MPNet/Qwen.
-
-## Interface examples
-
-**Activation guidance.** The question `My physical card arrived. How do I activate
-it?` produces an editable model draft using the activation policy. Worker review
-is required before download.
-
-![Activation question, model draft and selected policy](assets/screenshots/card-activation.png)
-
-[View the expanded policy and reviewed reply](assets/screenshots/card-activation-sources.png).
-
-**Uncertain routing.** In this run, `Can you check whether my card is active?`
-falls below the classifier's confidence threshold. The app asks for clarification
-and shows a **System suggestion**, with no model draft or claim about account
-status. Passages marked **candidate** were not selected for drafting.
-
-![Uncertain question routed to worker clarification](assets/screenshots/routing-review.png)
-
-[View the candidate passages and review control](assets/screenshots/routing-review-sources.png).
-
-## Evaluation and results
-
-The [concise report](reports/component_comparison.json) separates classifier,
-routing and generation results, and includes the additional development questions.
-
-| Measurement | Result | Interpretation |
-|---|---|---|
-| MPNet classifier accuracy | **93.83%** | Intent labels, 3,080 previously inspected official test questions |
-| Classifier macro-F1 / top-3 accuracy | **0.9384 / 98.67%** | Classification, not customer-answer quality |
-| Development routing | **30/30**, then **11/12** | One additional question safely required routing review |
-| Drafts passing bounded checks | **12/18**, then **3/9** | Acceptance is not a factual-correctness score |
-
-`C` was selected by three-fold training-only CV; review thresholds used a separate
-8,002/2,001 training partition. The official test had already been inspected, so
-its results are a development benchmark, not a blind final estimate. Historical
-corpus encoding used batch 16. Quantized vectors can depend on batch size; those
-scores do not prove identical accuracy for the app's single-question path.
-
-Thirty newly authored development scenarios and twelve additional questions were
-used to check the workflow. Expectations were written before generation; findings
-led to fixes and reruns. They are **development verification**, not an untouched
-holdout. Developer inspection assisted by AI still found omitted conditions and
-incorrect customer context even in accepted JSON. Conservative checks can also
-reject an adequate paraphrase. Every reply therefore requires worker review.
+This is a local drafting prototype with fictional policies, not a bank service.
+It cannot access accounts, activate cards or inspect payments. Small-model drafts
+can omit conditions or invent details; the checks catch known patterns, not every
+error. Use fictional English questions without personal information.
 
 Data: [BANKING77 / PolyAI](https://github.com/PolyAI-LDN/task-specific-datasets),
 CC-BY-4.0. Models: [MPNet](https://huggingface.co/sentence-transformers/all-mpnet-base-v2)
