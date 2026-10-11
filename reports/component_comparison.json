@@ -1,0 +1,220 @@
+{
+  "project": "Financial Support Assistant",
+  "updated": "2026-10-11",
+  "scope": "Local fictional card-policy drafting prototype; classifier scores are not answer accuracy.",
+  "classification": {
+    "dataset": "BANKING77",
+    "classes": 77,
+    "train_questions": 10003,
+    "test_questions": 3080,
+    "selection": "Three-fold stratified train-only CV, C in [3,10,30,100], mean macro-F1; thresholds chosen on 8002/2001 train-only split; seed 42.",
+    "test_role": "Previously inspected official test, a development benchmark rather than a blind final estimate.",
+    "encoder_batch_size": 16,
+    "current_encoder": "sentence-transformers/all-mpnet-base-v2",
+    "current_C": 30,
+    "confidence_threshold": 0.5,
+    "results": [
+      {
+        "encoder": "sentence-transformers/all-MiniLM-L6-v2",
+        "selected_C": 10.0,
+        "accuracy": 0.9318181818181818,
+        "macro_f1": 0.9316955334977941,
+        "top3_accuracy": 0.9824675324675325,
+        "selective": {
+          "retained_count": 2918,
+          "total": 3080,
+          "coverage": 0.9474025974025974,
+          "errors": 131,
+          "accuracy": 0.955106237148732
+        }
+      },
+      {
+        "encoder": "sentence-transformers/all-mpnet-base-v2",
+        "selected_C": 30.0,
+        "accuracy": 0.9383116883116883,
+        "macro_f1": 0.9384384906307623,
+        "top3_accuracy": 0.9866883116883117,
+        "selective": {
+          "retained_count": 2940,
+          "total": 3080,
+          "coverage": 0.9545454545454546,
+          "errors": 120,
+          "accuracy": 0.9591836734693877
+        }
+      }
+    ],
+    "limitations": [
+      "Uncalibrated softmax; the review threshold is not an out-of-domain detector.",
+      "Quantized ONNX vectors can depend on batch size. These historical batch-16 scores do not establish the same accuracy for the app single-question path.",
+      "Only logistic regression was trained. MPNet and Qwen are pretrained, not fine-tuned here."
+    ]
+  },
+  "current_workflow": {
+    "policies": 5,
+    "sections": 10,
+    "selection": "Similarity ranks all sections; topic and explicit card-procedure rules select applicable sources. The panel shows the top three plus the selected section if needed.",
+    "draft_model": "qwen3:1.7b",
+    "context_tokens": 2048,
+    "max_generated_tokens": 512,
+    "max_reply_words": 160,
+    "temperature": 0,
+    "seed": 42,
+    "max_calls_per_question": 1,
+    "timeout_seconds": 60,
+    "record_or_unsupported_requests": "No generation call; explicit worker guidance.",
+    "validation": "JSON fields, selected citation IDs, known sensitive-request/cause patterns and known policy omissions. Not semantic truth validation.",
+    "failure": "An unaccepted draft is not displayed as a model answer. Selected policy text is labeled Policy reference for worker editing.",
+    "human_review": "Required for every reply before download; nothing is sent automatically."
+  },
+  "development_evaluation": {
+    "method": "English questions and material policy expectations were authored before generation. Routing/prompt fixes used these small development sets; follow-up findings also led to bounded guard corrections. Counts below are the rerun of the current version, not an untouched holdout or independent human evaluation.",
+    "conditions": "Windows local run; MPNet quantized ONNX CPU, two threads, question batch 1 and policy batch 2; portable Ollama, one resident local Qwen model. Timing is a warm-model observation on one machine.",
+    "first_set": {
+      "questions": 30,
+      "correct_routes": 30,
+      "safe_route_abstentions": 0,
+      "false_supported_routes": 0,
+      "generation_calls": 18,
+      "accepted_by_bounded_checks": 12,
+      "rejected_drafts_shown_as_policy_reference": 6,
+      "all_replies_require_review": true,
+      "median_generation_request_seconds": 1.044
+    },
+    "followup_set": {
+      "questions": 12,
+      "correct_routes": 11,
+      "safe_route_abstentions": 1,
+      "false_supported_routes": 0,
+      "generation_calls": 9,
+      "accepted_by_bounded_checks": 3,
+      "rejected_drafts_shown_as_policy_reference": 6,
+      "all_replies_require_review": true,
+      "median_generation_request_seconds": 0.92
+    },
+    "interpretation": [
+      "Accepted by bounded checks does not mean complete, factually correct or ready to send.",
+      "Developer inspection assisted by AI found omissions, unnecessary repeated questions and invented or conflicting customer context even among accepted drafts.",
+      "Phrase matching can also reject a semantically adequate paraphrase. Source-reference fallback and mandatory worker review remain necessary.",
+      "Small fictional examples do not measure customer-wide, production or held-out generalization performance."
+    ],
+    "followup_examples": [
+      {
+        "question": "The app shows my virtual card and the physical card that has just arrived. Which card should I select for activation, and what comes after the app confirmation?",
+        "expected_gap": "none",
+        "actual_gap": "none",
+        "selected_sources": [
+          "card_activation::activate-a-physical-card"
+        ],
+        "generation_status": "completed"
+      },
+      {
+        "question": "I selected the physical card that arrived, updated the app, and tried activation on a stable connection. The error is 'Activation temporarily unavailable'. What should I do if this continues?",
+        "expected_gap": "none",
+        "actual_gap": "none",
+        "selected_sources": [
+          "card_activation::activation-error"
+        ],
+        "generation_status": "invalid_output"
+      },
+      {
+        "question": "Part of my physical card has broken off. I am worried it could get stuck in the shop reader. What is the safe replacement procedure?",
+        "expected_gap": "none",
+        "actual_gap": "none",
+        "selected_sources": [
+          "card_damage::damaged-card-replacement"
+        ],
+        "generation_status": "invalid_output"
+      },
+      {
+        "question": "I tried to use my card and it did not work. I have not written down any details yet. What should I tell support first?",
+        "expected_gap": "customer_detail",
+        "actual_gap": "review_required",
+        "selected_sources": [],
+        "generation_status": "skipped"
+      },
+      {
+        "question": "My new card was ordered on Friday and dispatched on Monday. How is the normal card delivery window counted when a public holiday falls that week?",
+        "expected_gap": "none",
+        "actual_gap": "none",
+        "selected_sources": [
+          "card_delivery::delivery-estimate"
+        ],
+        "generation_status": "completed"
+      },
+      {
+        "question": "I opened the card Delivery page in the app but there is no tracking link. My card has not arrived either. Is a link always available, and what timing information should I check before asking for a delivery review?",
+        "expected_gap": "customer_detail",
+        "actual_gap": "customer_detail",
+        "selected_sources": [
+          "card_delivery::tracking-and-late-delivery"
+        ],
+        "generation_status": "completed"
+      },
+      {
+        "question": "A website rejected my card payment at checkout, but I closed the page before noting the message. What information should I collect and what app checks can I make?",
+        "expected_gap": "customer_detail",
+        "actual_gap": "customer_detail",
+        "selected_sources": [
+          "card_online_payments::online-payment-declined"
+        ],
+        "generation_status": "invalid_output"
+      },
+      {
+        "question": "The payment verification screen says a security code was sent, but it has not arrived while I am paying online. What should I check, and what information should I give support if it stays missing?",
+        "expected_gap": "none",
+        "actual_gap": "none",
+        "selected_sources": [
+          "card_online_payments::payment-verification-code-missing"
+        ],
+        "generation_status": "invalid_output"
+      },
+      {
+        "question": "My inserted-card payment was declined at a shop. The error says 'PIN error' and I saw it at another terminal too. Should I keep trying the PIN, or are there other checks?",
+        "expected_gap": "none",
+        "actual_gap": "none",
+        "selected_sources": [
+          "card_shop_payments::chip-and-pin-payment-declined"
+        ],
+        "generation_status": "invalid_output"
+      },
+      {
+        "question": "I activated my new card and paid once by inserting it and entering my PIN. Contactless is still failing at different terminals. What is the next step?",
+        "expected_gap": "none",
+        "actual_gap": "none",
+        "selected_sources": [
+          "card_shop_payments::contactless-payment-not-working"
+        ],
+        "generation_status": "invalid_output"
+      },
+      {
+        "question": "Please look up my order and confirm whether my physical card has actually been dispatched. I need the real status rather than the usual delivery estimate.",
+        "expected_gap": "unavailable_record",
+        "actual_gap": "unavailable_record",
+        "selected_sources": [
+          "card_delivery::tracking-and-late-delivery"
+        ],
+        "generation_status": "skipped"
+      },
+      {
+        "question": "I did not receive the verification code for logging into my account. How do I get signed in? This is not a payment verification step.",
+        "expected_gap": "not_covered",
+        "actual_gap": "not_covered",
+        "selected_sources": [],
+        "generation_status": "skipped"
+      }
+    ]
+  },
+  "earlier_generation_comparison": {
+    "role": "Historical development comparison with the old prompt, not comparable success rates for the current workflow.",
+    "questions_per_model": 6,
+    "qwen3_1_7b": {
+      "structured_accepted": 5,
+      "all_required_conditions_and_usable": 0
+    },
+    "qwen3_4b": {
+      "structured_accepted": 2,
+      "all_required_conditions_and_usable": 1
+    },
+    "review": "AI-assisted developer inspection, not independent human validation."
+  }
+}

@@ -1,0 +1,26 @@
+# Local environments and caches
+.venv/
+.cache/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Model weights and local working notes
+models/
+data/
+*.gguf
+*.safetensors
+local_notes/
